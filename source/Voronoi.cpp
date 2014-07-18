@@ -38,51 +38,27 @@ void Voronoi::VoronoiDiagram(std::vector<Point> &pointList)
 		eventQueue.Delete(curEvent);
 	}
 
-	BeachNode *pNode = beachLine.GetRoot();
-	HandleBox(pNode);
-
-	//trave the dcel
-	TraveDCEL();
+	//BeachNode *pNode = beachLine.GetRoot();
+	//HandleBox(pNode);
 
 }
 
-void PrintDCEL(std::vector<Point>& sites, std::vector<Line>& edges)
+std::vector<Line> Voronoi::GetEdges()
 {
-	std::cout << "sites : " << std::endl;
-	auto sit = sites.begin();
-	while (sit != sites.end()) {
-		sit->PrintCoordinate();
-		std::cout<<std::endl;
-	    ++sit;
-	}
-	std::cout<<"edges: " <<std::endl;
-	auto eit = edges.begin();
-	while (eit != edges.end()) {
-		eit->Print();
-		std::cout<<std::endl;
-		++eit;
-	}
-
-}
-
-void Voronoi::TraveDCEL()
-{
-	std::vector<Point> sites;
 	std::vector<Line> edges;
 	int numOfFace = dcel.getSize();
 	for (int i=0; i<numOfFace; ++i) {
 		Face* face = dcel.getFace(i);
-		sites.push_back(face->GetSite());
 		std::vector<HalfEdge*> halfEdges = face->GetHalfEdges();
 		auto it = halfEdges.begin();
 		while (it != halfEdges.end()) {
 			Line tmp((*it)->getStart(), (*it)->getTwin()->getStart());
 			edges.push_back(tmp);
+			tmp.Print();std::cout<<std::endl;
 		    ++it;
 		}
 	}
-
-	PrintDCEL(sites,edges);
+	return edges;
 }
 
 void Voronoi::HandleBox(BeachNode *pNode)
@@ -168,11 +144,22 @@ void Voronoi::HandleSiteEvent()
 
 
 	BeachNode *subTree = BuildSubBeachLine(arc->GetLeftArc(),site);
+	subTree->left->pre = arc->pre;
+	if (arc->pre)
+	    arc->pre->suc = subTree->left;
+	subTree->right->right->suc = arc->suc;
+	if (arc->suc)
+	    arc->suc->pre = subTree->right->right;
+	
+	std::vector<Point> endPoint = ComputeEndPoint(arc->GetLeftArc(),site);
+	subTree->originHalfEdge->setStart(endPoint[0]);
+	subTree->right->originHalfEdge->setStart(endPoint[1]);
 	beachLine.Insert(arc,subTree); //build the subtree of current site event and insert the beachline
 	
     BeachNode *newArc = beachLine.FindArc(site);
-	FindLeftCircleEvent(newArc);
-	FindRightCircleEvent(newArc);
+	CheckCircleEvent(newArc);
+	//FindLeftCircleEvent(newArc);
+	//FindRightCircleEvent(newArc);
 }
 
 void Voronoi::HandleCircleEvent()
@@ -197,10 +184,46 @@ void Voronoi::HandleCircleEvent()
 
 }
 
-void Voronoi::CheckCircle(BeachNode *arc)
+void Voronoi::CheckCircleEvent(BeachNode *arc)
 {
 	FindLeftCircleEvent(arc);
 	FindRightCircleEvent(arc);
+}
+
+Point calcbkY(float x, Point p, float yl)
+{
+	float xa = p.GetX();
+	float ya = p.GetY();
+    float y = pow((x-xa),2) / (2*(ya-yl)) + (ya+yl)/2;
+
+	return Point(x,y);
+}
+
+Point calcBreakingPoint(Point leftsite, Point rightsite, float yl)
+{
+	float xa = leftsite.GetX();
+	float ya = leftsite.GetY();
+	float xb = rightsite.GetX();
+	float yb = rightsite.GetY();
+
+	float a = ya-yb; 
+	float b = (-1)*2*( (xb-xa)*(ya-yl)+xa*(ya-yb) ); 
+	float c = pow(xa,2)*(ya-yb) + (pow(ya,2)-pow(yl,2))*(ya-yb)-(ya-yl)*((pow(xa,2)-pow(xb,2))+(pow(ya,2)-pow(yb,2)));
+	
+	float x1 = (-b + sqrt(b*b-4*a*c) ) / (2*a);
+	float x2 = (-b - sqrt(b*b-4*a*c) ) / (2*a);
+
+	Point bk;
+	if(leftsite.GetY() > rightsite.GetY()) {
+		float x = x1 < x2 ? x1 : x2;
+		bk = calcbkY(x,leftsite,yl);
+	}
+	else {
+		float x = x1 > x2 ? x1 : x2;
+		bk = calcbkY(x,leftsite,yl);
+	}
+
+	return bk;
 }
 
 void Voronoi::FindRightCircleEvent(BeachNode *rightArc)
@@ -212,7 +235,7 @@ void Voronoi::FindRightCircleEvent(BeachNode *rightArc)
 		center = FindCircle(leftArc->GetLeftArc(),midArc->GetLeftArc(),rightArc->GetLeftArc());
 	}
 
-	if (center) {
+	if (center && center->GetY() > MinY && center->GetX() > MinX) {
 		Point circlePoint(center->GetX(),center->GetY() - center->Dist(rightArc->GetLeftArc()));
 		EventNode *circleEvent = new EventNode(circlePoint,CIRCLE,midArc,*center);
 		midArc->SetCircleEvent(circleEvent);
@@ -229,7 +252,7 @@ void Voronoi::FindLeftCircleEvent(BeachNode *leftArc)
 		center = FindCircle(leftArc->GetLeftArc(),midArc->GetLeftArc(),rightArc->GetLeftArc());
 	}
 
-	if (center) {
+	if (center && center->GetY() > MinY && center->GetX() > MinX) {
 		Point circlePoint(center->GetX(),center->GetY() - center->Dist(leftArc->GetLeftArc()));
 		EventNode *circleEvent = new EventNode(circlePoint,CIRCLE,midArc,*center);
 		midArc->SetCircleEvent(circleEvent);
@@ -243,10 +266,47 @@ Point* Voronoi::FindCircle(Point &left,Point &middle,Point &right)
 	if (left.SameLineThrough3Point(middle,right))
 		return nullptr;
     center = ComputeCircleCenterDefinedBy3Points(left, middle, right);
-    if (IsRightOfLine(left, middle, *center) && IsRightOfLine(middle, right, *center))
-		return center;
-	else
-		return nullptr;
+	float ly = curEvent->GetEvent().GetY();
+	if (curEvent->GetEvent() == left) {
+		Point newbk  = calcbkY(left.GetX(),middle,ly);
+		Point testbk = calcBreakingPoint(middle,right,ly);
+		float dist = newbk.Dist(testbk);
+		ly -= abs(center->GetY()-ly) / 100.0;
+		Point newbkInc  = calcBreakingPoint(left,middle,ly);
+		Point testbkInc = calcBreakingPoint(middle,right,ly);
+		float distInc = newbkInc.Dist(testbkInc);
+		if (distInc < dist)
+			return center;
+		else
+			return nullptr;
+	}
+	else if (curEvent->GetEvent() == right) {
+	    Point newbk  = calcbkY(right.GetX(),middle,ly);
+		Point testbk = calcBreakingPoint(left,middle,ly);
+		float dist = newbk.Dist(testbk);
+		ly -= abs(center->GetY()-ly) / 10.0;
+		Point newbkInc  = calcBreakingPoint(middle,right,ly);
+		Point testbkInc = calcBreakingPoint(left,middle,ly);
+		float distInc = newbkInc.Dist(testbkInc);
+		if (distInc < dist)
+			return center;
+		else
+			return nullptr;
+	}
+	else {
+	    Point leftbk  = calcBreakingPoint(left,middle,ly);
+		Point rightbk = calcBreakingPoint(middle,right,ly);
+		float dist = leftbk.Dist(rightbk);
+		ly -= abs(center->GetY()-ly) / 10.0;
+		Point newbkInc  = calcBreakingPoint(left,middle,ly);
+		Point testbkInc = calcBreakingPoint(middle,right,ly);
+		float distInc = newbkInc.Dist(testbkInc);
+		if (distInc < dist)
+			return center;
+		else
+			return nullptr;
+	}
+
 }
 
 Point* Voronoi::ComputeCircleCenterDefinedBy3Points(Point &p1,Point &p2,Point &p3)
@@ -272,6 +332,31 @@ bool Voronoi::IsRightOfLine(Point &start, Point &end, Point &point)
 		return false;
 }
 
+std::vector<Point> Voronoi::ComputeEndPoint (Point leftSite, Point rightSite)
+{
+	std::vector<Point> endPoint;
+	float x1,y1;
+	x1 = ComputeX(MinY,leftSite,rightSite);
+	if (! (x1 < MinX || x1 > MaxX))
+		endPoint.push_back(Point(x1,MinY));
+
+	x1 = ComputeX(MaxY,leftSite,rightSite);
+	if (! (x1 < MinX || x1 > MaxX) )
+		endPoint.push_back(Point(x1,MaxX));
+
+	y1 = ComputeY(MinX,leftSite,rightSite);
+	if (! (y1 < MinY || y1 > MaxY))
+		endPoint.push_back(Point(MinX,y1));
+
+	y1 = ComputeY(MaxX,leftSite,rightSite);
+	if (! (y1 < MinY || y1 > MaxY))
+		endPoint.push_back(Point(MaxX,y1));
+	if (endPoint.size() != 2)
+		std::cout << "wrong in the computeendpoint" << std::endl;
+	if (endPoint[0].GetX() > endPoint[1].GetX())
+		std::swap(endPoint[0],endPoint[1]);
+	return endPoint;
+}
 
 BeachNode* Voronoi::BuildSubBeachLine(Point &leftArcSite, Point &rightArcSite)
 {
@@ -360,12 +445,15 @@ void Voronoi::DeleteArc(BeachNode *delArc)
 
 	HalfEdge *el = new HalfEdge();
 	HalfEdge *er = new HalfEdge();
-	
+	std::vector<Point> endPoint = ComputeEndPoint(leftArcSite,rightArcSite);
+
 	el->setTwin(er);
 	Face *face = dcel.FindFace(leftArcSite);
 	el->setIncidentFace(face);
 	face->AddHalfEdge(el);
 	grandParent->originHalfEdge = el;
+	Point elOrigin = endPoint[0].GetY() < endPoint[1].GetY() ? endPoint[0] : endPoint[1];
+	el->setStart(elOrigin);
 
 	er->setTwin(el);
 	face = dcel.FindFace(rightArcSite);
@@ -378,6 +466,6 @@ void Voronoi::DeleteArc(BeachNode *delArc)
 
 	beachLine.DeleteFixup(delArcBrother->parent);//fix from the parent of realdelNode
 
-	CheckCircle(leftArc);
-	CheckCircle(rightArc);
+	CheckCircleEvent(leftArc);
+	CheckCircleEvent(rightArc);
 }

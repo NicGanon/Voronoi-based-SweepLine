@@ -13,7 +13,7 @@ public:
 	void VoronoiDiagram(std::vector<Point> &pointList);
 	void HandleSiteEvent();
 	void HandleCircleEvent();
-
+    std::vector<Line> GetEdges();
 private:
 
 	void FindLeftCircleEvent(BeachNode *leftArc);
@@ -23,12 +23,11 @@ private:
 	Point* ComputeCircleCenterDefinedBy3Points(Point &p1,Point &p2,Point &p3);
 	BeachNode* BuildSubBeachLine (Point &leftArcSite, Point &rightArcSite);
 	void DeleteArc(BeachNode *delArc);
-	void CheckCircle(BeachNode *arc);
-	void Voronoi::HandleBox(BeachNode *pNode);
-	float ComputeX(float x, Point &leftPoint, Point &rightPoint);
+	void CheckCircleEvent(BeachNode *arc);
+	void HandleBox(BeachNode *pNode);
+	float ComputeX(float y, Point &leftPoint, Point &rightPoint);
 	float ComputeY(float x, Point &leftPoint, Point &rightPoint);
-	void Voronoi::TraveDCEL();
-
+	std::vector<Point> ComputeEndPoint (Point leftSite, Point rightSite);
 private:
 	EventNode *curEvent;
 	DCEL dcel;
